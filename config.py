@@ -8,12 +8,12 @@ cfg = {
     "class_number": 4,
     'mode': '-mutillabel',
     #train
-    'batch_size':3,
+    'batch_size':4,
     'early_stop_patient':26,
     'learning_rate':0.0002,
     'epochs':35,
     'save_start_epoch':5,
-    'train_path':"../data/train/finalall",
+    'train_path':"/media/qifubo/_data/cv_data/train",
     "k_flod":5,
     'optims':'Ranger',  #adam  SGD AdaBelief Ranger
     'schedu':'SGDR1', #default  SGDR1 2  CVPR   step1 2
@@ -24,7 +24,7 @@ cfg = {
     'model_path':None,
     'start_fold':0,
     #test
-    'test_path':"../data/testA_rotate/",#_resize_rotate
+    'test_path':"/media/qifubo/_data/cv_data/test",#_resize_rotate
     'use_TTA':0,
     'test_batch_size': 4,
     #fixed

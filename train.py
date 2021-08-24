@@ -40,7 +40,8 @@ from libs.ranger import Ranger
 from libs.focal_loss import FocalLoss 
 
 
-def trainClassify(model, 
+def trainClassify(
+	model, 
     device, 
     train_loader, 
     optimizer, 
@@ -48,8 +49,8 @@ def trainClassify(model,
     total_epoch,
     criterion,
     use_distill,
-    label_smooth):
-    
+    label_smooth
+	):
     model.train()
     correct = 0
     count = 0

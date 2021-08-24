@@ -34,12 +34,6 @@ from config import cfg
 
 
 
-
-
-
-
-
-
 def predict(test_loader, model, mode, device):
     # switch to evaluate mode
     model.eval()
