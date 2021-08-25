@@ -8,7 +8,7 @@ cfg = {
     "class_number": 4,
     'mode': '-mutillabel',
     #train
-    'batch_size':4,
+    'batch_size':5,
     'early_stop_patient':26,
     'learning_rate':0.0002,
     'epochs':35,

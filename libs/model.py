@@ -106,7 +106,7 @@ class NetClassify(nn.Module):
         elif model_name == "adv-efficientnet-b3":
             self.model_feature.load_state_dict(torch.load("../model/adv-efficientnet-b3-cdd7c0f4.pth"),strict=False) 
         elif model_name == "adv-efficientnet-b4":
-            self.model_feature.load_state_dict(torch.load("./model/adv-efficientnet-b4-44fb3a87.pth"),strict=False) 
+            self.model_feature.load_state_dict(torch.load("../model/adv-efficientnet-b4-44fb3a87.pth"),strict=False) 
         elif model_name == "adv-efficientnet-b5":
             self.model_feature.load_state_dict(torch.load("../model/adv-efficientnet-b5-86493f6b.pth"),strict=False) 
         elif model_name == "adv-efficientnet-b6":

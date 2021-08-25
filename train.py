@@ -41,7 +41,7 @@ from libs.focal_loss import FocalLoss
 
 
 def trainClassify(
-	model, 
+    model, 
     device, 
     train_loader, 
     optimizer, 
@@ -50,7 +50,7 @@ def trainClassify(
     criterion,
     use_distill,
     label_smooth
-	):
+    ):
     model.train()
     correct = 0
     count = 0
@@ -169,6 +169,8 @@ def main(cfg):
     label_smooth = cfg['label_smooth']
     model_path = cfg['model_path']
     start_fold = cfg['start_fold']
+    test_path = cfg['test_path']
+    
 
     os.environ["CUDA_VISIBLE_DEVICES"] = GPU_ID
     seed_reproducer(random_seed)
@@ -186,6 +188,8 @@ def main(cfg):
         kwargs = {'num_workers': 4, 'pin_memory': True}
 
     train_names = getAllName(train_path)
+    val_names = getAllName(test_path)
+    
     print("total imgs: ", len(train_names))
 
     if not use_distill:
@@ -197,168 +201,159 @@ def main(cfg):
     #print(train_names[:3])
 
     train_names = np.array(train_names)
+    val_names = np.array(val_names)
+    
     random.shuffle(train_names)
-
+    random.shuffle(val_names)
  
 
     
-    folds = KFold(n_splits=fold_num, shuffle=False)#, random_state=random_seed
-    for fold_i, (train_index, val_index) in enumerate(folds.split(train_names)):
-        print("Fold: ", fold_i+1,'/',fold_num)
-        if fold_i<start_fold:
-            continue
+    # folds = KFold(n_splits=fold_num, shuffle=False)#, random_state=random_seed
+    # for fold_i, (train_index, val_index) in enumerate(folds.split(train_names)):
+    #     print("Fold: ", fold_i+1,'/',fold_num)
+    #     if fold_i<start_fold:
+    #         continue
 
 
-        train_data = train_names[train_index]
-        val_data = train_names[val_index]
+        # train_data = train_names[train_index]
+        # val_data = train_names[val_index]
         # print(val_data[-3:])
         # b
-        input_data = [train_data, val_data]
+    train_data = train_names
+    val_data = val_names
+    input_data = [train_data, val_data]
         
 
 
-        if not use_distill and label_smooth==0:
-            criterion = torch.nn.CrossEntropyLoss().cuda()
-            #criterion = FocalLoss().cuda()
-            train_loader, val_loader = getDataLoader("trainClassify", input_data,model_name, img_size, batch_size, kwargs)
-        else:
+    if not use_distill and label_smooth==0:
+        criterion = torch.nn.CrossEntropyLoss().cuda()
+        #criterion = FocalLoss().cuda()
+        train_loader, val_loader = getDataLoader("trainClassify", input_data,model_name, img_size, batch_size, kwargs)
+    else:
 
-            criterion = CrossEntropyLossOneHot().cuda()
-            #kwargs['use_distill'] = use_distill
-            #print(kwargs)
-            train_loader, val_loader = getDataLoader("trainClassifyOnehot", input_data,model_name, img_size, batch_size, kwargs)
+        criterion = CrossEntropyLossOneHot().cuda()
+        #kwargs['use_distill'] = use_distill
+        #print(kwargs)
+        train_loader, val_loader = getDataLoader("trainClassifyOnehot", input_data,model_name, img_size, batch_size, kwargs)
 
 
-        model = NetClassify(model_name, class_number).to(device)
-        if model_path is not None:
-            model.load_state_dict(torch.load(model_path))
-            print("---------------------- load model!!!")
-        # print(model)
-        # b
+    model = NetClassify(model_name, class_number).to(device)
+    if model_path is not None:
+        model.load_state_dict(torch.load(model_path))
+        print("---------------------- load model!!!")
+    # print(model)
+    # b
+    
+
+    if optims=='adam':
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    elif optims=='SGD':
+        optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=weight_decay)
+    elif optims=='AdaBelief':
+        optimizer = AdaBelief(model.parameters(), lr=learning_rate, eps=1e-12, betas=(0.9,0.999))
+    elif optims=='Ranger':
+        optimizer = Ranger(model.parameters(), lr=learning_rate)
+    
+
+
+    if schedu=='default':
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=5)
+    elif schedu=='step1':
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=4, gamma=0.8, last_epoch=-1)
+    elif schedu=='step2':
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=8, gamma=0.5, last_epoch=-1)
+    elif schedu=='step3':
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.5, last_epoch=-1)
+    elif schedu=='SGDR1': 
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer,
+                                                                T_0=10, 
+                                                            T_mult=2)
+    elif schedu=='SGDR2': 
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer,
+                                                                T_0=5, 
+                                                            T_mult=2)
+
+    # elif schedu=='CVPR': 
+    #     scheduler = WarmRe   mizer, T_max=10, T_mult=1, eta_min=1e-5)
+    
+    if use_warmup:
+        scheduler_warmup = GradualWarmupScheduler(optimizer, 
+            multiplier=1, total_epoch=1, after_scheduler=scheduler)
+
+
+    early_stop_value = 0
+    early_stop_dist = 0
+
+    for epoch in range(epochs):
         
-
-        if optims=='adam':
-            optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        elif optims=='SGD':
-            optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=weight_decay)
-        elif optims=='AdaBelief':
-            optimizer = AdaBelief(model.parameters(), lr=learning_rate, eps=1e-12, betas=(0.9,0.999))
-        elif optims=='Ranger':
-            optimizer = Ranger(model.parameters(), lr=learning_rate)
-        
-
-
-        if schedu=='default':
-            scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=5)
-        elif schedu=='step1':
-            scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=4, gamma=0.8, last_epoch=-1)
-        elif schedu=='step2':
-            scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=8, gamma=0.5, last_epoch=-1)
-        elif schedu=='step3':
-            scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.5, last_epoch=-1)
-        elif schedu=='SGDR1': 
-            scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer,
-                                                                 T_0=10, 
-                                                                T_mult=2)
-        elif schedu=='SGDR2': 
-            scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer,
-                                                                 T_0=5, 
-                                                                T_mult=2)
-
-        # elif schedu=='CVPR': 
-        #     scheduler = WarmRe   mizer, T_max=10, T_mult=1, eta_min=1e-5)
-        
-        if use_warmup:
-            scheduler_warmup = GradualWarmupScheduler(optimizer, 
-                multiplier=1, total_epoch=1, after_scheduler=scheduler)
-
-
-
-
-
-        early_stop_value = 0
-        early_stop_dist = 0
-
-        for epoch in range(epochs):
-            
-            if schedu=='step3':
-                if epoch==10:
-                    img_size=416
-                    batch_size = 4
-                    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5, last_epoch=-1)
-                    if not use_distill:
-                        criterion = torch.nn.CrossEntropyLoss().cuda()
-                        train_loader, val_loader = getDataLoader("trainClassify", input_data,model_name, img_size, batch_size, kwargs)
-                    else:
-                        criterion = CrossEntropyLossOneHot().cuda()
-                        train_loader, val_loader = getDataLoader("trainClassifyOnehot", input_data,model_name, img_size, batch_size, kwargs)
-
-
-                elif epoch==15:
-                    img_size=600
-                    batch_size = 3
-                    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer,
-                                                                     T_0=10, 
-                                                                    T_mult=2)
-                    if not use_distill:
-                        criterion = torch.nn.CrossEntropyLoss().cuda()
-                        train_loader, val_loader = getDataLoader("trainClassify", input_data,model_name, img_size, batch_size, kwargs)
-                    else:
-                        criterion = CrossEntropyLossOneHot().cuda()
-                        train_loader, val_loader = getDataLoader("trainClassifyOnehot", input_data,model_name, img_size, batch_size, kwargs)
-
-
-            
-
-            trainClassify(model, device, train_loader, optimizer, epoch, epochs, criterion, use_distill, label_smooth)
-            print(" LR:", optimizer.param_groups[0]["lr"], end="")
-
-            t = time.time()
-            val_loss, mAP = valClassify(model, device, val_loader, criterion, use_distill, label_smooth)
-            print("val time: ", time.time() - t)
-
-            #print('333')
-            #continue
-
-            if use_warmup:
-                scheduler_warmup.step(epoch)
-            else:
-                if schedu=='default':
-                    scheduler.step(mAP)
+        if schedu=='step3':
+            if epoch==10:
+                img_size=416
+                batch_size = 4
+                scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5, last_epoch=-1)
+                if not use_distill:
+                    criterion = torch.nn.CrossEntropyLoss().cuda()
+                    train_loader, val_loader = getDataLoader("trainClassify", input_data,model_name, img_size, batch_size, kwargs)
                 else:
-                    scheduler.step()
+                    criterion = CrossEntropyLossOneHot().cuda()
+                    train_loader, val_loader = getDataLoader("trainClassifyOnehot", input_data,model_name, img_size, batch_size, kwargs)
 
 
-            #print("---")
-            #print(mAP, early_stop_value, early_stop_dist)
-            if mAP>early_stop_value:
-                early_stop_value = mAP
-                early_stop_dist = 0
-                if epoch>=save_start_epoch:
-                    hitory_path = glob.glob('./save/%s-%d_*k-%d_%s.pth' % (model_name,img_size,fold_i,GPU_ID))
-                    if len(hitory_path)!=0:
-                        if os.path.exists(hitory_path[0]):
-                            os.remove(hitory_path[0])
-                    torch.save(model.state_dict(), './save/%s-%d_%d_%.4f_k-%d_%s.pth' % (model_name,img_size,epoch,mAP,fold_i,GPU_ID))
+            elif epoch==15:
+                img_size=600
+                batch_size = 3
+                scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer,
+                                                                    T_0=10, 
+                                                                T_mult=2)
+                if not use_distill:
+                    criterion = torch.nn.CrossEntropyLoss().cuda()
+                    train_loader, val_loader = getDataLoader("trainClassify", input_data,model_name, img_size, batch_size, kwargs)
+                else:
+                    criterion = CrossEntropyLossOneHot().cuda()
+                    train_loader, val_loader = getDataLoader("trainClassifyOnehot", input_data,model_name, img_size, batch_size, kwargs)
+
+
+        
+
+        trainClassify(model, device, train_loader, optimizer, epoch, epochs, criterion, use_distill, label_smooth)
+        print(" LR:", optimizer.param_groups[0]["lr"], end="")
+
+        t = time.time()
+        val_loss, mAP = valClassify(model, device, val_loader, criterion, use_distill, label_smooth)
+        print("val time: ", time.time() - t)
+
+        if use_warmup:
+            scheduler_warmup.step(epoch)
+        else:
+            if schedu=='default':
+                scheduler.step(mAP)
+            else:
+                scheduler.step()
+
+        #print("---")
+        #print(mAP, early_stop_value, early_stop_dist)
+        if mAP>early_stop_value:
+            early_stop_value = mAP
+            early_stop_dist = 0
+            if epoch>=save_start_epoch:
+                hitory_path = glob.glob('./save/%s-%d_*k-%d_%s.pth' % (model_name,img_size,0,GPU_ID))
+                if len(hitory_path)!=0:
+                    if os.path.exists(hitory_path[0]):
+                        os.remove(hitory_path[0])
+                torch.save(model.state_dict(), './save/%s-%d_%d_%.4f_k-%d_%s.pth' % (model_name,img_size,epoch,mAP,0,GPU_ID))
+    
+        early_stop_dist+=1
+        if early_stop_dist>early_stop_patient:
+            print("------")
+            print(cfg)
+            print("------")
+            print("===== Early Stop with patient %d , best is Epoch - %d :%f" % (early_stop_patient,epoch-early_stop_patient,early_stop_value))
+            break
+        if  epoch+1==epochs:
+            print("===== Finish trainging , best is Epoch - %d :%f" % (epoch-early_stop_dist,early_stop_value))
+            break
+
             
-
-
-
-            early_stop_dist+=1
-            if early_stop_dist>early_stop_patient:
-                print("------")
-                print(cfg)
-                print("------")
-                print("===== Early Stop with patient %d , best is Epoch - %d :%f" % (early_stop_patient,epoch-early_stop_patient,early_stop_value))
-                break
-            if  epoch+1==epochs:
-                print("===== Finish trainging , best is Epoch - %d :%f" % (epoch-early_stop_dist,early_stop_value))
-                break
-
-            
-
-
-                
         del model
         gc.collect()
         torch.cuda.empty_cache()
